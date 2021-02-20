@@ -56,6 +56,28 @@ class RayTest(test_case.TestCase):
     self.weights = tf.identity(tf.convert_to_tensor(value=self.weights_values))
 
   @parameterized.parameters(
+      ("Not all batch dimensions are identical.", 512, (4, 3), (5, 3)),
+      ("must have exactly 3 dimensions in axis", 512, (4, 2), (4, 2)),
+      ("Not all batch dimensions are identical.", 512, (2, 4, 3), (1, 3)),
+  )
+  def test_stratified_sampling_exception_raised(self, error_msg, n_samples,
+                                                *shapes):
+    """Tests that the shape exceptions are properly raised."""
+    self.assert_exception_is_raised(ray.stratified_sampling, error_msg, shapes,
+                                    n_samples=n_samples)
+
+  @parameterized.parameters(
+      (512, (4, 3), (4, 3)),
+      (128, (5, 4, 3), (5, 4, 3)),
+      (512, (6, 5, 4, 3), (6, 5, 4, 3)),
+  )
+  def test_stratified_sampling_exception_is_not_raised(self, n_samples,
+                                                       *shapes):
+    """Tests that the shape exceptions are properly raised."""
+    self.assert_exception_is_not_raised(ray.stratified_sampling, shapes,
+                                        n_samples=n_samples)
+
+  @parameterized.parameters(
       ("Not all batch dimensions are identical.", (4, 3), (5, 3), (4,)),
       ("must have exactly 3 dimensions in axis", (4, 2), (4, 2), (4,)),
       ("must have a rank greater than 1", (3,), (3,), (None,)),

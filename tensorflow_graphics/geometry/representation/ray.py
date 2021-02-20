@@ -17,6 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from typing import Tuple
 from six.moves import range
 import tensorflow as tf
 
@@ -24,6 +25,92 @@ from tensorflow_graphics.math import vector
 from tensorflow_graphics.util import asserts
 from tensorflow_graphics.util import export_api
 from tensorflow_graphics.util import shape
+
+
+def _points_from_z_values(ray_org: tf.Tensor,
+                          ray_dir: tf.Tensor,
+                          z_values: tf.Tensor) -> tf.Tensor:
+  """Uniform sampling on a ray.
+
+  Args:
+    ray_org: A tensor of shape `[A1, ..., An, 3]`,
+      where the last dimension represents the 3D position of the ray origin.
+    ray_dir: A tensor of shape `[A1, ..., An, 3]`,
+      where the last dimension represents the 3D direction of the ray.
+    z_values: A tensor of shape `[A1, ..., An, M]` containing the 1D position of
+      M points along the ray.
+
+  Returns:
+    A tensor of shape `[A1, ..., An, M, 3]`
+  """
+  shape.check_static(
+      tensor=ray_dir,
+      tensor_name="ray_dir",
+      has_dim_equals=(-1, 3))
+  shape.check_static(
+      tensor=ray_org,
+      tensor_name="ray_org",
+      has_dim_equals=(-1, 3))
+  shape.compare_batch_dimensions(
+      tensors=(ray_org, ray_dir, z_values),
+      tensor_names=("ray_org", "ray_dir", "z_values"),
+      last_axes=-2,
+      broadcast_compatible=False)
+  points3d = \
+      tf.expand_dims(ray_dir, axis=-2) * tf.expand_dims(z_values, axis=-1)
+  points3d = tf.expand_dims(ray_org, -2) + points3d
+  return points3d
+
+
+def stratified_sampling(ray_org: tf.Tensor,
+                        ray_dir: tf.Tensor,
+                        n_samples: int,
+                        near: float = 1.0,
+                        far: float = 4.0,
+                        name: str = "stratified_sampling") -> \
+    Tuple[tf.Tensor, tf.Tensor]:
+  """Stratified sampling on a ray.
+
+  Args:
+    ray_org: A tensor of shape `[A1, ..., An, 3]`,
+      where the last dimension represents the 3D position of the ray origin.
+    ray_dir: A tensor of shape `[A1, ..., An, 3]`,
+      where the last dimension represents the 3D direction of the ray.
+    n_samples: A number M to sample on the ray.
+    near: The closest point to the origin of the ray.
+    far: The furthest point to the origin of the ray.
+    name: A name for this op that defaults to "stratified_sampling".
+
+  Returns:
+    A tensor of shape `[A1, ..., An, M, 3]` indicating the M points on the ray
+      and a tensor of shape `[A1, ..., An, M]` for the Z values on the points.
+  """
+  with tf.name_scope(name):
+    shape.check_static(
+        tensor=ray_org,
+        tensor_name="ray_org",
+        has_dim_equals=(-1, 3))
+    shape.check_static(
+        tensor=ray_dir,
+        tensor_name="ray_dir",
+        has_dim_equals=(-1, 3))
+    shape.compare_batch_dimensions(
+        tensors=(ray_org, ray_dir),
+        tensor_names=("ray_org", "ray_dir"),
+        last_axes=(-2, -2),
+        broadcast_compatible=False)
+
+    linear_z_values = tf.linspace(0., 1., n_samples)
+    linear_z_values = near * (1. - linear_z_values) + far * linear_z_values
+    mid_points = .5 * (linear_z_values[..., 1:] + linear_z_values[..., :-1])
+    up_points = tf.concat([mid_points, linear_z_values[..., -1:]], -1)
+    low_points = tf.concat([linear_z_values[..., :1], mid_points], -1)
+    random_z_values = tf.random.uniform(linear_z_values.shape)
+    random_z_values = low_points + (up_points - low_points) * random_z_values
+    output_shape = tf.concat([tf.shape(ray_dir)[:-1], [n_samples]], axis=-1)
+    random_z_values = tf.broadcast_to(random_z_values, output_shape)
+    points3d = _points_from_z_values(ray_org, ray_dir, random_z_values)
+    return points3d, random_z_values
 
 
 def triangulate(startpoints, endpoints, weights, name="ray_triangulate"):
